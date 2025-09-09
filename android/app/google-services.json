@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "878575862602",
+    "project_id": "sjcem-navigator",
+    "storage_bucket": "sjcem-navigator.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:878575862602:android:e728eef9829088a11637b3",
+        "android_client_info": {
+          "package_name": "com.example.st_locator"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAzf0oKdhJ0BA475fSP6tHZWzAg_Gs_TF8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
