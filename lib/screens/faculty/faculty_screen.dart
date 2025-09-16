@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../main.dart'; // To access supabase client
 
 class FacultyScreen extends StatefulWidget {
   const FacultyScreen({super.key});
@@ -11,12 +13,12 @@ class _FacultyScreenState extends State<FacultyScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Faculty> _facultyList = [];
   List<Faculty> _filteredFacultyList = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     _loadFacultyData();
-    _filteredFacultyList = _facultyList;
   }
 
   @override
@@ -25,70 +27,65 @@ class _FacultyScreenState extends State<FacultyScreen> {
     super.dispose();
   }
 
-  void _loadFacultyData() {
-    _facultyList = [
-      Faculty(
-        name: 'Dr. Rajesh Kumar',
-        subject: 'Computer Science',
-        department: 'CSE',
-        currentLocation: 'Room 301, 3rd Floor',
-        isAvailable: true,
-        profileImage: 'assets/images/faculty1.jpg',
-        phoneNumber: '+91 9876543210',
-        email: 'rajesh.kumar@sjcem.ac.in',
-      ),
-      Faculty(
-        name: 'Prof. Priya Sharma',
-        subject: 'Mathematics',
-        department: 'Applied Sciences',
-        currentLocation: 'Room 205, 2nd Floor',
-        isAvailable: true,
-        profileImage: 'assets/images/faculty2.jpg',
-        phoneNumber: '+91 9876543211',
-        email: 'priya.sharma@sjcem.ac.in',
-      ),
-      Faculty(
-        name: 'Dr. Amit Patel',
-        subject: 'Electronics',
-        department: 'ECE',
-        currentLocation: 'Lab 4, 2nd Floor',
-        isAvailable: false,
-        profileImage: 'assets/images/faculty3.jpg',
-        phoneNumber: '+91 9876543212',
-        email: 'amit.patel@sjcem.ac.in',
-      ),
-      Faculty(
-        name: 'Prof. Neha Gupta',
-        subject: 'Mechanical Engineering',
-        department: 'MECH',
-        currentLocation: 'Workshop, Ground Floor',
-        isAvailable: true,
-        profileImage: 'assets/images/faculty4.jpg',
-        phoneNumber: '+91 9876543213',
-        email: 'neha.gupta@sjcem.ac.in',
-      ),
-      Faculty(
-        name: 'Dr. Suresh Reddy',
-        subject: 'Civil Engineering',
-        department: 'CIVIL',
-        currentLocation: 'Room 401, 4th Floor',
-        isAvailable: true,
-        profileImage: 'assets/images/faculty5.jpg',
-        phoneNumber: '+91 9876543214',
-        email: 'suresh.reddy@sjcem.ac.in',
-      ),
-      Faculty(
-        name: 'Prof. Kavya Singh',
-        subject: 'English',
-        department: 'Applied Sciences',
-        currentLocation: 'Room 102, 1st Floor',
-        isAvailable: false,
-        profileImage: 'assets/images/faculty6.jpg',
-        phoneNumber: '+91 9876543215',
-        email: 'kavya.singh@sjcem.ac.in',
-      ),
-    ];
-    _filteredFacultyList = _facultyList;
+  Future<void> _loadFacultyData() async {
+    try {
+      // Fetch faculty data from Supabase
+      final response = await supabase
+          .from('users')
+          .select('*, faculty_availability(*)')
+          .filter('role', 'in', [
+            'Faculty',
+            'HOD',
+          ]) // Using filter instead of in
+          .order('name');
+
+      final List<Faculty> facultyData = [];
+
+      for (final faculty in response) {
+        final availability =
+            faculty['faculty_availability'] != null &&
+                faculty['faculty_availability'].isNotEmpty
+            ? faculty['faculty_availability'][0]
+            : null;
+
+        facultyData.add(
+          Faculty(
+            name: faculty['name'] ?? '',
+            subject: faculty['department'] ?? '',
+            department: faculty['department'] ?? '',
+            currentLocation: availability != null
+                ? availability['current_location'] ?? 'Unknown'
+                : 'Unknown',
+            isAvailable: availability != null
+                ? availability['is_available'] ?? false
+                : false,
+            profileImage: faculty['profile_image_url'] ?? '',
+            phoneNumber: faculty['phone'] ?? '',
+            email: faculty['email'] ?? '',
+          ),
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _facultyList = facultyData;
+          _filteredFacultyList = facultyData;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading faculty data: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _filterFaculty(String query) {
@@ -170,7 +167,9 @@ class _FacultyScreenState extends State<FacultyScreen> {
 
           // Faculty List
           Expanded(
-            child: _filteredFacultyList.isEmpty
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _filteredFacultyList.isEmpty
                 ? const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,

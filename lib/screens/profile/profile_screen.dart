@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../main.dart'; // To access supabase client
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -8,19 +10,64 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  // Mock user data - would come from authentication/storage
-  final UserProfile _userProfile = UserProfile(
-    name: 'John Doe',
-    id: 'ST001234',
-    email: 'john.doe@student.sjcem.ac.in',
-    department: 'Computer Science Engineering',
-    year: '3rd Year',
-    role: 'Student',
-    phone: '+91 9876543210',
-    profileImage: '',
-  );
+  bool _isLoading = true;
+  UserProfile? _userProfile;
 
-  void _logout() {
+  @override
+  void initState() {
+    super.initState();
+    _loadUserProfile();
+  }
+
+  Future<void> _loadUserProfile() async {
+    try {
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) {
+        // Not logged in, redirect to login
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
+        return;
+      }
+
+      // Fetch user data from the users table
+      final userData = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .single();
+
+      if (mounted) {
+        setState(() {
+          _userProfile = UserProfile(
+            name: userData['name'] ?? '',
+            id: userData['user_id'] ?? '',
+            email: userData['email'] ?? '',
+            department: userData['department'] ?? '',
+            year: userData['year'] ?? '',
+            role: userData['role'] ?? '',
+            phone: userData['phone'] ?? '',
+            profileImage: userData['profile_image_url'] ?? '',
+          );
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading profile: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _logout() async {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -32,9 +79,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
-              Navigator.pushReplacementNamed(context, '/login');
+              try {
+                await supabase.auth.signOut();
+                if (mounted) {
+                  Navigator.pushReplacementNamed(context, '/login');
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error logging out: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
@@ -48,14 +109,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _editProfile() {
+    if (_userProfile == null) return;
+
     showDialog(
       context: context,
       builder: (context) => EditProfileDialog(
-        userProfile: _userProfile,
-        onUpdate: (updatedProfile) {
-          setState(() {
-            // Update profile data
-          });
+        userProfile: _userProfile!,
+        onUpdate: (updatedProfile) async {
+          try {
+            // Update profile in Supabase
+            final userId = supabase.auth.currentUser?.id;
+            if (userId == null) {
+              // Handle case where user is not logged in
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'You must be logged in to update your profile',
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+
+            await supabase
+                .from('users')
+                .update({
+                  'name': updatedProfile.name,
+                  'email': updatedProfile.email,
+                  'phone': updatedProfile.phone,
+                })
+                .eq(
+                  'id',
+                  userId,
+                ); // This is now safe as we checked userId != null
+
+            setState(() {
+              _userProfile = updatedProfile;
+            });
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Profile updated successfully'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error updating profile: ${e.toString()}'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
         },
       ),
     );
@@ -63,6 +175,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (_userProfile == null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Error loading profile'),
+              ElevatedButton(
+                onPressed: () =>
+                    Navigator.pushReplacementNamed(context, '/login'),
+                child: const Text('Back to Login'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: SingleChildScrollView(
         child: Column(
@@ -91,31 +225,50 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       CircleAvatar(
                         radius: 60,
                         backgroundColor: Colors.white,
-                        child: CircleAvatar(
-                          radius: 55,
-                          backgroundColor: Colors.blue.shade100,
-                          child: _userProfile.profileImage.isNotEmpty
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(55),
-                                  child: const Icon(
-                                    Icons.person,
-                                    size: 60,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(
+                        child: _userProfile!.profileImage.isNotEmpty
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(55),
+                                child: Image.network(
+                                  _userProfile!.profileImage,
+                                  width: 110,
+                                  height: 110,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return CircleAvatar(
+                                      radius: 55,
+                                      backgroundColor: Colors.blue.shade100,
+                                      child: const Icon(
+                                        Icons.person,
+                                        size: 60,
+                                        color: Colors.white,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              )
+                            : CircleAvatar(
+                                radius: 55,
+                                backgroundColor: Colors.blue.shade100,
+                                child: const Icon(
                                   Icons.person,
                                   size: 60,
                                   color: Colors.white,
                                 ),
-                        ),
+                              ),
                       ),
                       Positioned(
                         bottom: 0,
                         right: 0,
                         child: GestureDetector(
-                          onTap: () {
-                            // Handle profile picture change
+                          onTap: () async {
+                            // Handle profile picture upload to Supabase storage
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Profile picture upload feature coming soon',
+                                ),
+                              ),
+                            );
                           },
                           child: Container(
                             padding: const EdgeInsets.all(8),
@@ -144,7 +297,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                   // Name and ID
                   Text(
-                    _userProfile.name,
+                    _userProfile!.name,
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -153,7 +306,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _userProfile.id,
+                    _userProfile!.id,
                     style: const TextStyle(
                       fontSize: 16,
                       color: Colors.white70,
@@ -171,7 +324,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      _userProfile.role,
+                      _userProfile!.role,
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
@@ -208,15 +361,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                   // Profile Information Cards
                   _buildInfoCard('Personal Information', [
-                    _buildInfoRow(Icons.email, 'Email', _userProfile.email),
-                    _buildInfoRow(Icons.phone, 'Phone', _userProfile.phone),
+                    _buildInfoRow(Icons.email, 'Email', _userProfile!.email),
+                    _buildInfoRow(Icons.phone, 'Phone', _userProfile!.phone),
                     _buildInfoRow(
                       Icons.business,
                       'Department',
-                      _userProfile.department,
+                      _userProfile!.department,
                     ),
-                    if (_userProfile.role == 'Student')
-                      _buildInfoRow(Icons.school, 'Year', _userProfile.year),
+                    if (_userProfile!.role == 'Student')
+                      _buildInfoRow(Icons.school, 'Year', _userProfile!.year),
                   ]),
 
                   const SizedBox(height: 16),

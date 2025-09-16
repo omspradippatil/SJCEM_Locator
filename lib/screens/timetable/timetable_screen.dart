@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../main.dart'; // To access supabase client
 
 class TimetableScreen extends StatefulWidget {
   const TimetableScreen({super.key});
@@ -8,81 +10,231 @@ class TimetableScreen extends StatefulWidget {
 }
 
 class _TimetableScreenState extends State<TimetableScreen> {
-  String _selectedDay = 'Today';
-  String _userRole = 'Student'; // This would come from authentication
+  final String _selectedDay = 'Today';
+  String _userRole = 'Student'; // This will come from Supabase
   List<ClassSchedule> _todaySchedule = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadTodaySchedule();
+    _loadUserRole();
   }
 
-  void _loadTodaySchedule() {
-    // Mock data for today's schedule
-    _todaySchedule = [
-      ClassSchedule(
-        subject: 'Data Structures',
-        time: '9:00 AM - 10:00 AM',
-        faculty: 'Dr. Rajesh Kumar',
-        room: 'Room 301',
-        floor: '3rd Floor',
-        type: 'Lecture',
-        isCompleted: true,
-      ),
-      ClassSchedule(
-        subject: 'Mathematics',
-        time: '10:15 AM - 11:15 AM',
-        faculty: 'Prof. Priya Sharma',
-        room: 'Room 205',
-        floor: '2nd Floor',
-        type: 'Lecture',
-        isCompleted: true,
-      ),
-      ClassSchedule(
-        subject: 'Computer Networks',
-        time: '11:30 AM - 12:30 PM',
-        faculty: 'Dr. Amit Patel',
-        room: 'Lab 4',
-        floor: '2nd Floor',
-        type: 'Lab',
-        isCompleted: false,
-      ),
-      ClassSchedule(
-        subject: 'Software Engineering',
-        time: '2:00 PM - 3:00 PM',
-        faculty: 'Prof. Neha Gupta',
-        room: 'Room 302',
-        floor: '3rd Floor',
-        type: 'Lecture',
-        isCompleted: false,
-      ),
-      ClassSchedule(
-        subject: 'Database Management',
-        time: '3:15 PM - 4:15 PM',
-        faculty: 'Dr. Suresh Reddy',
-        room: 'Lab 2',
-        floor: '2nd Floor',
-        type: 'Lab',
-        isCompleted: false,
-      ),
-    ];
+  Future<void> _loadUserRole() async {
+    try {
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) {
+        // Not logged in, redirect to login
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
+        return;
+      }
+
+      // Fetch user role from the users table
+      final userData = await supabase
+          .from('users')
+          .select('role, department')
+          .eq('id', userId)
+          .single();
+
+      if (mounted) {
+        setState(() {
+          _userRole = userData['role'] ?? 'Student';
+          _loadTodaySchedule(userData['department']);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading user data: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
+  Future<void> _loadTodaySchedule(String department) async {
+    try {
+      // Get current day of week (1-7, 1 is Monday)
+      final now = DateTime.now();
+      final dayOfWeek = now.weekday;
+      final dayNames = [
+        '',
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+        'Sunday',
+      ];
+      final today = dayNames[dayOfWeek];
+
+      // Fetch timetable from Supabase
+      final response = await supabase
+          .from('timetable')
+          .select('*')
+          .eq('department', department)
+          .order('time');
+
+      final List<ClassSchedule> schedule = [];
+
+      for (final cls in response) {
+        // Check if class is completed (based on time)
+        final timeStr = cls['time'] as String;
+        final endTime = _getEndTime(timeStr);
+        final isCompleted = _isTimeCompleted(endTime);
+
+        schedule.add(
+          ClassSchedule(
+            subject: cls['subject'] ?? '',
+            time: cls['time'] ?? '',
+            faculty: cls['faculty'] ?? '',
+            room: cls['room'] ?? '',
+            floor: cls['floor'] ?? '',
+            type: cls['type'] ?? 'Lecture',
+            isCompleted: isCompleted,
+          ),
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _todaySchedule = schedule;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading schedule: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Helper method to get end time from time string (e.g., "9:00 AM - 10:00 AM")
+  String _getEndTime(String timeString) {
+    try {
+      return timeString.split(' - ')[1];
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // Helper method to check if a time has passed
+  bool _isTimeCompleted(String timeStr) {
+    try {
+      final now = DateTime.now();
+      final timeParts = timeStr.split(':');
+      var hour = int.parse(timeParts[0]);
+      final minuteSecond = timeParts[1].split(' ');
+      final minute = int.parse(minuteSecond[0]);
+      final isPM = minuteSecond[1].toUpperCase() == 'PM';
+
+      if (isPM && hour < 12) {
+        hour += 12;
+      } else if (!isPM && hour == 12) {
+        hour = 0;
+      }
+
+      final classEndTime = DateTime(now.year, now.month, now.day, hour, minute);
+      return now.isAfter(classEndTime);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Rest of the code remains the same with minor adjustments for Supabase
   void _showEditClassDialog(ClassSchedule classSchedule) {
-    if (_userRole != 'Faculty') return;
+    if (_userRole != 'Faculty' && _userRole != 'HOD') return;
 
     showDialog(
       context: context,
       builder: (context) => EditClassDialog(
         classSchedule: classSchedule,
-        onUpdate: (updatedClass) {
-          setState(() {
-            final index = _todaySchedule.indexOf(classSchedule);
-            if (index != -1) {
-              _todaySchedule[index] = updatedClass;
+        onUpdate: (updatedClass) async {
+          try {
+            final userId = supabase.auth.currentUser?.id;
+            if (userId == null) {
+              // Handle case where user is not logged in
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'You must be logged in to perform this action',
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
             }
-          });
+
+            // Update or insert the class in Supabase
+            if (classSchedule.subject.isEmpty) {
+              // New class
+              await supabase.from('timetable').insert({
+                'subject': updatedClass.subject,
+                'time': updatedClass.time,
+                'faculty': updatedClass.faculty,
+                'room': updatedClass.room,
+                'floor': updatedClass.floor,
+                'type': updatedClass.type,
+                'created_by': userId,
+              });
+            } else {
+              // Existing class - find and update it
+              // For simplicity, we're using a combination of fields to identify the class
+              await supabase
+                  .from('timetable')
+                  .update({
+                    'subject': updatedClass.subject,
+                    'time': updatedClass.time,
+                    'faculty': updatedClass.faculty,
+                    'room': updatedClass.room,
+                    'floor': updatedClass.floor,
+                    'type': updatedClass.type,
+                  })
+                  .eq('subject', classSchedule.subject)
+                  .eq('time', classSchedule.time)
+                  .eq('room', classSchedule.room);
+            }
+
+            // Reload the schedule
+            final userData = await supabase
+                .from('users')
+                .select('department')
+                .eq(
+                  'id',
+                  userId,
+                ) // This is now safe as we checked userId != null
+                .single();
+
+            _loadTodaySchedule(userData['department']);
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error updating class: ${e.toString()}'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
         },
       ),
     );
@@ -184,7 +336,9 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
           // Schedule List
           Expanded(
-            child: _todaySchedule.isEmpty
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _todaySchedule.isEmpty
                 ? const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -507,7 +661,7 @@ class _EditClassDialogState extends State<EditClassDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _selectedType,
+              initialValue: _selectedType,
               decoration: const InputDecoration(
                 labelText: 'Type',
                 border: OutlineInputBorder(),
