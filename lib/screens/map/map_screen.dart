@@ -1,4 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:async';
+import 'dart:math' as math;
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -7,46 +13,228 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
-  String _currentFloor = 'Ground';
-  bool _isNavigating = false;
-  late AnimationController _pulseController;
-  late AnimationController _pathController;
+class _MapScreenState extends State<MapScreen> {
+  final MapController _mapController = MapController();
+  LatLng? _currentLocation;
+  double _currentHeading = 0.0;
+  bool _isTracking = false;
+  StreamSubscription<Position>? _positionStream;
 
-  final List<String> _floors = ['Ground', '1st', '2nd', '3rd', '4th'];
+  // SJCEM Campus coordinates (approximate)
+  final LatLng _campusCenter = const LatLng(19.0760, 72.8777);
+
+  final List<Marker> _buildingMarkers = [];
+  final List<Marker> _facultyMarkers = [];
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat();
-
-    _pathController = AnimationController(
-      duration: const Duration(seconds: 3),
-      vsync: this,
-    );
+    _initializeMap();
+    _createBuildingMarkers();
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
-    _pathController.dispose();
+    _positionStream?.cancel();
     super.dispose();
   }
 
-  void _navigateToRoom(String roomName) {
-    setState(() {
-      _isNavigating = true;
-    });
-    _pathController.forward();
+  Future<void> _initializeMap() async {
+    await _getCurrentLocation();
+    if (_currentLocation != null) {
+      _mapController.move(_currentLocation!, 17.0);
+    } else {
+      _mapController.move(_campusCenter, 16.0);
+    }
+  }
 
+  Future<void> _getCurrentLocation() async {
+    final permission = await Permission.location.request();
+    if (permission.isDenied) return;
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      setState(() {
+        _currentLocation = LatLng(position.latitude, position.longitude);
+      });
+    } catch (e) {
+      // Use a logging framework instead of print in production
+      debugPrint('Error getting location: $e');
+    }
+  }
+
+  void _startLocationTracking() {
+    setState(() {
+      _isTracking = true;
+    });
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 1, // Update every 1 meter
+      ),
+    ).listen((Position position) {
+      setState(() {
+        _currentLocation = LatLng(position.latitude, position.longitude);
+        _currentHeading = position.heading;
+      });
+
+      // Auto-center map on user location
+      _mapController.move(_currentLocation!, _mapController.camera.zoom);
+    });
+  }
+
+  void _stopLocationTracking() {
+    setState(() {
+      _isTracking = false;
+    });
+    _positionStream?.cancel();
+  }
+
+  void _createBuildingMarkers() {
+    // Sample building locations on SJCEM campus
+    final buildings = [
+      {
+        'name': 'Main Building',
+        'lat': 19.0760,
+        'lng': 72.8777,
+        'type': 'administrative'
+      },
+      {
+        'name': 'CSE Department',
+        'lat': 19.0765,
+        'lng': 72.8780,
+        'type': 'academic'
+      },
+      {
+        'name': 'IT Department',
+        'lat': 19.0762,
+        'lng': 72.8785,
+        'type': 'academic'
+      },
+      {
+        'name': 'ECE Department',
+        'lat': 19.0758,
+        'lng': 72.8775,
+        'type': 'academic'
+      },
+      {'name': 'Library', 'lat': 19.0755, 'lng': 72.8782, 'type': 'facility'},
+      {'name': 'Canteen', 'lat': 19.0768, 'lng': 72.8772, 'type': 'facility'},
+      {
+        'name': 'Auditorium',
+        'lat': 19.0752,
+        'lng': 72.8778,
+        'type': 'facility'
+      },
+      {
+        'name': 'Sports Complex',
+        'lat': 19.0770,
+        'lng': 72.8785,
+        'type': 'facility'
+      },
+    ];
+
+    for (final building in buildings) {
+      _buildingMarkers.add(
+        Marker(
+          point: LatLng(building['lat'] as double, building['lng'] as double),
+          width: 40,
+          height: 40,
+          child: GestureDetector(
+            onTap: () => _showBuildingInfo(building),
+            child: Container(
+              decoration: BoxDecoration(
+                color: _getBuildingColor(building['type'] as String),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+              child: Icon(
+                _getBuildingIcon(building['type'] as String),
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Color _getBuildingColor(String type) {
+    switch (type) {
+      case 'academic':
+        return Colors.blue;
+      case 'administrative':
+        return Colors.red;
+      case 'facility':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getBuildingIcon(String type) {
+    switch (type) {
+      case 'academic':
+        return Icons.school;
+      case 'administrative':
+        return Icons.business;
+      case 'facility':
+        return Icons.place;
+      default:
+        return Icons.location_on;
+    }
+  }
+
+  void _showBuildingInfo(Map<String, dynamic> building) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(building['name']),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Type: ${building['type']}'),
+            const SizedBox(height: 8),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _navigateToLocation(
+                  LatLng(building['lat'] as double, building['lng'] as double),
+                );
+              },
+              child: const Text('Navigate Here'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _navigateToLocation(LatLng destination) {
+    _mapController.move(destination, 18.0);
+
+    // Show navigation path (simplified)
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Navigating to $roomName...'),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
+        content: Text(
+          'Navigating to ${destination.latitude.toStringAsFixed(4)}, ${destination.longitude.toStringAsFixed(4)}',
+        ),
+        action: SnackBarAction(
+          label: 'Stop',
+          onPressed: () {},
+        ),
       ),
     );
   }
@@ -54,193 +242,138 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(
+      body: Stack(
         children: [
-          // Floor Selection
-          Container(
-            height: 60,
-            color: Colors.blue.shade50,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: _floors.map((floor) {
-                final isSelected = floor == _currentFloor;
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _currentFloor = floor;
-                      _isNavigating = false;
-                    });
-                    _pathController.reset();
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? Colors.blue.shade600
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      floor,
-                      style: TextStyle(
-                        color: isSelected ? Colors.white : Colors.blue.shade600,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _campusCenter,
+              initialZoom: 16.0,
+              minZoom: 10.0,
+              maxZoom: 20.0,
             ),
-          ),
-
-          // Map Area
-          Expanded(
-            child: Stack(
-              children: [
-                // Map Background
-                Container(
-                  width: double.infinity,
-                  height: double.infinity,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Colors.grey.shade200, Colors.grey.shade100],
-                    ),
-                  ),
-                  child: CustomPaint(
-                    painter: FloorPlanPainter(
-                      floor: _currentFloor,
-                      isNavigating: _isNavigating,
-                      pathAnimation: _pathController,
-                    ),
-                  ),
-                ),
-
-                // You Are Here Indicator
-                Positioned(
-                  left: MediaQuery.of(context).size.width * 0.3,
-                  top: MediaQuery.of(context).size.height * 0.4,
-                  child: AnimatedBuilder(
-                    animation: _pulseController,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: 1.0 + (_pulseController.value * 0.3),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.sjcem.navigator',
+              ),
+              MarkerLayer(markers: _buildingMarkers),
+              MarkerLayer(markers: _facultyMarkers),
+              if (_currentLocation != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: _currentLocation!,
+                      width: 30,
+                      height: 30,
+                      child: Transform.rotate(
+                        angle: _currentHeading * (math.pi / 180),
                         child: Container(
-                          width: 20,
-                          height: 20,
-                          decoration: BoxDecoration(
+                          decoration: const BoxDecoration(
                             color: Colors.red,
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.red.withOpacity(0.3),
-                                blurRadius: 10,
-                                spreadRadius: 5,
+                                color: Colors.black26,
+                                blurRadius: 4,
+                                offset: Offset(0, 2),
                               ),
                             ],
                           ),
+                          child: const Icon(
+                            Icons.navigation,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
-                      );
-                    },
-                  ),
-                ),
-
-                // You Are Here Label
-                Positioned(
-                  left: MediaQuery.of(context).size.width * 0.15,
-                  top: MediaQuery.of(context).size.height * 0.45,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black87,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      'You are here',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
                       ),
                     ),
-                  ),
+                  ],
                 ),
+            ],
+          ),
 
-                // Room Labels (Interactive)
-                _buildRoomLabels(),
+          // Control Panel
+          Positioned(
+            top: 50,
+            right: 16,
+            child: Column(
+              children: [
+                FloatingActionButton(
+                  heroTag: "location",
+                  mini: true,
+                  onPressed: _getCurrentLocation,
+                  child: const Icon(Icons.my_location),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton(
+                  heroTag: "tracking",
+                  mini: true,
+                  backgroundColor: _isTracking ? Colors.red : Colors.blue,
+                  onPressed: _isTracking
+                      ? _stopLocationTracking
+                      : _startLocationTracking,
+                  child: Icon(_isTracking ? Icons.stop : Icons.play_arrow),
+                ),
               ],
             ),
           ),
 
-          // Quick Actions
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.white,
-            child: Column(
-              children: [
-                Row(
+          // Search Bar
+          Positioned(
+            top: 50,
+            left: 16,
+            right: 80,
+            child: Card(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
                   children: [
+                    const Icon(Icons.search),
+                    const SizedBox(width: 8),
                     Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _navigateToRoom('Library'),
-                        icon: const Icon(Icons.library_books),
-                        label: const Text('Library'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green.shade600,
-                          foregroundColor: Colors.white,
+                      child: TextField(
+                        decoration: const InputDecoration(
+                          hintText: 'Search buildings, rooms...',
+                          border: InputBorder.none,
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _navigateToRoom('Canteen'),
-                        icon: const Icon(Icons.restaurant),
-                        label: const Text('Canteen'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange.shade600,
-                          foregroundColor: Colors.white,
-                        ),
+                        onSubmitted: (value) {
+                          // Implement search functionality
+                        },
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Row(
+              ),
+            ),
+          ),
+
+          // Building Legend
+          Positioned(
+            bottom: 100,
+            left: 16,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _navigateToRoom('Principal Office'),
-                        icon: const Icon(Icons.admin_panel_settings),
-                        label: const Text('Principal'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.purple.shade600,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
+                    const Text(
+                      'Legend',
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _navigateToRoom('Washroom'),
-                        icon: const Icon(Icons.wc),
-                        label: const Text('Washroom'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade600,
-                          foregroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
+                    const SizedBox(height: 8),
+                    _buildLegendItem(Colors.blue, Icons.school, 'Academic'),
+                    _buildLegendItem(
+                        Colors.red, Icons.business, 'Administrative'),
+                    _buildLegendItem(Colors.green, Icons.place, 'Facilities'),
+                    _buildLegendItem(
+                        Colors.red, Icons.navigation, 'Your Location'),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ],
@@ -248,167 +381,25 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildRoomLabels() {
-    final rooms = _getRoomsForFloor(_currentFloor);
-
-    return Stack(
-      children: rooms.map((room) {
-        return Positioned(
-          left: room.x,
-          top: room.y,
-          child: GestureDetector(
-            onTap: () => _navigateToRoom(room.name),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade600,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 4,
-                    spreadRadius: 1,
-                  ),
-                ],
-              ),
-              child: Text(
-                room.name,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+  Widget _buildLegendItem(Color color, IconData icon, String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
             ),
+            child: Icon(icon, color: Colors.white, size: 10),
           ),
-        );
-      }).toList(),
+          const SizedBox(width: 8),
+          Text(label, style: const TextStyle(fontSize: 12)),
+        ],
+      ),
     );
-  }
-
-  List<RoomData> _getRoomsForFloor(String floor) {
-    switch (floor) {
-      case 'Ground':
-        return [
-          RoomData('101', 100, 150),
-          RoomData('102', 200, 150),
-          RoomData('Library', 150, 250),
-          RoomData('Canteen', 250, 300),
-        ];
-      case '1st':
-        return [
-          RoomData('201', 100, 150),
-          RoomData('202', 200, 150),
-          RoomData('Lab-1', 150, 250),
-          RoomData('Lab-2', 250, 200),
-        ];
-      case '2nd':
-        return [
-          RoomData('301', 100, 150),
-          RoomData('302', 200, 150),
-          RoomData('Computer Lab', 150, 250),
-          RoomData('Electronics Lab', 250, 200),
-        ];
-      case '3rd':
-        return [
-          RoomData('401', 100, 150),
-          RoomData('402', 200, 150),
-          RoomData('Principal Office', 150, 250),
-          RoomData('HOD Office', 250, 200),
-        ];
-      case '4th':
-        return [
-          RoomData('501', 100, 150),
-          RoomData('502', 200, 150),
-          RoomData('Conference Room', 150, 250),
-          RoomData('Staff Room', 250, 200),
-        ];
-      default:
-        return [];
-    }
-  }
-}
-
-class RoomData {
-  final String name;
-  final double x;
-  final double y;
-
-  RoomData(this.name, this.x, this.y);
-}
-
-class FloorPlanPainter extends CustomPainter {
-  final String floor;
-  final bool isNavigating;
-  final AnimationController pathAnimation;
-
-  FloorPlanPainter({
-    required this.floor,
-    required this.isNavigating,
-    required this.pathAnimation,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.grey.shade400
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-
-    // Draw basic floor plan outline
-    final rect = Rect.fromLTWH(50, 100, size.width - 100, size.height - 200);
-    canvas.drawRect(rect, paint);
-
-    // Draw rooms
-    final roomPaint = Paint()
-      ..color = Colors.blue.shade100
-      ..style = PaintingStyle.fill;
-
-    final roomStroke = Paint()
-      ..color = Colors.blue.shade300
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
-
-    // Draw sample rooms
-    final rooms = [
-      Rect.fromLTWH(80, 130, 80, 60),
-      Rect.fromLTWH(180, 130, 80, 60),
-      Rect.fromLTWH(280, 130, 80, 60),
-      Rect.fromLTWH(130, 220, 100, 80),
-      Rect.fromLTWH(250, 220, 100, 80),
-    ];
-
-    for (final room in rooms) {
-      canvas.drawRect(room, roomPaint);
-      canvas.drawRect(room, roomStroke);
-    }
-
-    // Draw navigation path if navigating
-    if (isNavigating) {
-      final pathPaint = Paint()
-        ..color = Colors.green.shade600
-        ..strokeWidth = 4
-        ..style = PaintingStyle.stroke;
-
-      final path = Path();
-      path.moveTo(size.width * 0.3, size.height * 0.4);
-      path.lineTo(size.width * 0.5, size.height * 0.4);
-      path.lineTo(size.width * 0.5, size.height * 0.6);
-      path.lineTo(size.width * 0.7, size.height * 0.6);
-
-      final pathMetrics = path.computeMetrics();
-      final pathMetric = pathMetrics.first;
-      final extractPath = pathMetric.extractPath(
-        0.0,
-        pathMetric.length * pathAnimation.value,
-      );
-
-      canvas.drawPath(extractPath, pathPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return true;
   }
 }

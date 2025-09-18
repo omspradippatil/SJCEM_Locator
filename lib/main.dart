@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
+import 'screens/timetable/timetable_screen.dart';
 
 // IMPORTANT: Replace this with your actual Supabase URL and anon key
 // You can find these values in your Supabase project dashboard under Settings > API
-final supabaseUrl = 'https://htqshywwbcmvuhwcaoaz.supabase.co';
-final supabaseKey =
+const supabaseUrl = 'https://htqshywwbcmvuhwcaoaz.supabase.co';
+const supabaseKey =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0cXNoeXd3YmNtdnVod2Nhb2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgwMjQ1NTMsImV4cCI6MjA3MzYwMDU1M30.84_Hs9D5I7flJHT_hOWIknKwIdT93PP7mmLLaaI8-xk';
 // For production, use this instead and pass values via --dart-define:
 // final supabaseUrl = const String.fromEnvironment('SUPABASE_URL');
@@ -26,11 +27,13 @@ Future<void> main() async {
 
   supabase = Supabase.instance.client;
 
-  runApp(const MyApp());
+  runApp(const MyApp(initialRoute: '/login'));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final String initialRoute;
+
+  const MyApp({super.key, required this.initialRoute});
 
   @override
   Widget build(BuildContext context) {
@@ -44,10 +47,11 @@ class MyApp extends StatelessWidget {
         ),
         appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
       ),
-      home: const LoginScreen(),
+      initialRoute: initialRoute,
       routes: {
         '/login': (context) => const LoginScreen(),
         '/home': (context) => const HomeScreen(),
+        '/timetable': (context) => const TimetableScreen(),
       },
       debugShowCheckedModeBanner: false,
     );

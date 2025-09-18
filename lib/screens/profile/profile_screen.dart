@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../main.dart'; // To access supabase client
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../main.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -10,8 +10,13 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  String _userRole = '';
+  String _userName = '';
+  String _userDepartment = '';
+  String _userEmail = '';
+  String _userPhone = '';
+  String _userYear = '';
   bool _isLoading = true;
-  UserProfile? _userProfile;
 
   @override
   void initState() {
@@ -21,154 +26,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadUserProfile() async {
     try {
-      final userId = supabase.auth.currentUser?.id;
-      if (userId == null) {
-        // Not logged in, redirect to login
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/login');
-        }
-        return;
-      }
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('user_id');
 
-      // Fetch user data from the users table
-      final userData = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', userId)
-          .single();
+      setState(() {
+        _userRole = prefs.getString('user_role') ?? '';
+        _userName = prefs.getString('user_name') ?? '';
+        _userDepartment = prefs.getString('user_department') ?? '';
+      });
 
-      if (mounted) {
+      if (userId != null && _userRole != 'Guest') {
+        final response =
+            await supabase.from('users').select().eq('id', userId).single();
+
         setState(() {
-          _userProfile = UserProfile(
-            name: userData['name'] ?? '',
-            id: userData['user_id'] ?? '',
-            email: userData['email'] ?? '',
-            department: userData['department'] ?? '',
-            year: userData['year'] ?? '',
-            role: userData['role'] ?? '',
-            phone: userData['phone'] ?? '',
-            profileImage: userData['profile_image_url'] ?? '',
-          );
-          _isLoading = false;
+          _userName = response['name'] ?? '';
+          _userEmail = response['email'] ?? '';
+          _userPhone = response['phone'] ?? '';
+          _userDepartment = response['department'] ?? '';
+          _userYear = response['year'] ?? '';
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading profile: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error loading profile: $e')),
         );
       }
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
   Future<void> _logout() async {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              try {
-                await supabase.auth.signOut();
-                if (mounted) {
-                  Navigator.pushReplacementNamed(context, '/login');
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error logging out: ${e.toString()}'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
-    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, '/login');
+    }
   }
 
-  void _editProfile() {
-    if (_userProfile == null) return;
+  void _showAddFacultyDialog() {
+    if (_userRole != 'HOD' && _userRole != 'Faculty') return;
 
     showDialog(
       context: context,
-      builder: (context) => EditProfileDialog(
-        userProfile: _userProfile!,
-        onUpdate: (updatedProfile) async {
-          try {
-            // Update profile in Supabase
-            final userId = supabase.auth.currentUser?.id;
-            if (userId == null) {
-              // Handle case where user is not logged in
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'You must be logged in to update your profile',
-                    ),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-              return;
-            }
-
-            await supabase
-                .from('users')
-                .update({
-                  'name': updatedProfile.name,
-                  'email': updatedProfile.email,
-                  'phone': updatedProfile.phone,
-                })
-                .eq(
-                  'id',
-                  userId,
-                ); // This is now safe as we checked userId != null
-
-            setState(() {
-              _userProfile = updatedProfile;
-            });
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Profile updated successfully'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            }
-          } catch (e) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Error updating profile: ${e.toString()}'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          }
-        },
+      builder: (context) => AddFacultyDialog(
+        userDepartment: _userDepartment,
+        userRole: _userRole,
       ),
     );
   }
@@ -176,274 +84,166 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    if (_userProfile == null) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('Error loading profile'),
-              ElevatedButton(
-                onPressed: () =>
-                    Navigator.pushReplacementNamed(context, '/login'),
-                child: const Text('Back to Login'),
-              ),
-            ],
-          ),
-        ),
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
       body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Header Section
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.blue.shade600, Colors.blue.shade400],
-                ),
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(30),
-                  bottomRight: Radius.circular(30),
-                ),
-              ),
-              child: Column(
-                children: [
-                  const SizedBox(height: 20),
-                  // Profile Picture
-                  Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 60,
-                        backgroundColor: Colors.white,
-                        child: _userProfile!.profileImage.isNotEmpty
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(55),
-                                child: Image.network(
-                                  _userProfile!.profileImage,
-                                  width: 110,
-                                  height: 110,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return CircleAvatar(
-                                      radius: 55,
-                                      backgroundColor: Colors.blue.shade100,
-                                      child: const Icon(
-                                        Icons.person,
-                                        size: 60,
-                                        color: Colors.white,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              )
-                            : CircleAvatar(
-                                radius: 55,
-                                backgroundColor: Colors.blue.shade100,
-                                child: const Icon(
-                                  Icons.person,
-                                  size: 60,
-                                  color: Colors.white,
-                                ),
-                              ),
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: GestureDetector(
-                          onTap: () async {
-                            // Handle profile picture upload to Supabase storage
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Profile picture upload feature coming soon',
-                                ),
-                              ),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.1),
-                                  blurRadius: 4,
-                                  spreadRadius: 1,
-                                ),
-                              ],
-                            ),
-                            child: Icon(
-                              Icons.camera_alt,
-                              size: 20,
-                              color: Colors.blue.shade600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Name and ID
-                  Text(
-                    _userProfile!.name,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _userProfile!.id,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      _userProfile!.role,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Profile Details
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  // Edit Profile Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _editProfile,
-                      icon: const Icon(Icons.edit),
-                      label: const Text('Edit Profile'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue.shade600,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Profile Information Cards
-                  _buildInfoCard('Personal Information', [
-                    _buildInfoRow(Icons.email, 'Email', _userProfile!.email),
-                    _buildInfoRow(Icons.phone, 'Phone', _userProfile!.phone),
-                    _buildInfoRow(
-                      Icons.business,
-                      'Department',
-                      _userProfile!.department,
-                    ),
-                    if (_userProfile!.role == 'Student')
-                      _buildInfoRow(Icons.school, 'Year', _userProfile!.year),
-                  ]),
-
-                  const SizedBox(height: 16),
-
-                  _buildInfoCard('Quick Actions', [
-                    _buildActionRow(
-                      Icons.notifications,
-                      'Notifications',
-                      'Manage your notification preferences',
-                      () {
-                        // Handle notifications
-                      },
-                    ),
-                    _buildActionRow(
-                      Icons.help,
-                      'Help & Support',
-                      'Get help or contact support',
-                      () {
-                        // Handle help
-                      },
-                    ),
-                    _buildActionRow(
-                      Icons.info,
-                      'About',
-                      'App version and information',
-                      () {
-                        _showAboutDialog();
-                      },
-                    ),
-                  ]),
-
-                  const SizedBox(height: 24),
-
-                  // Logout Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _logout,
-                      icon: const Icon(Icons.logout),
-                      label: const Text('Logout'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade600,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoCard(String title, List<Widget> children) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            // Profile Header
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 50,
+                      backgroundColor: Colors.blue.shade600,
+                      child: Text(
+                        _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _userName.isNotEmpty ? _userName : 'Guest User',
+                      style:
+                          Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _userRole,
+                        style: TextStyle(
+                          color: Colors.blue.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 16),
-            ...children,
+
+            // User Details
+            if (_userRole != 'Guest') ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Personal Information',
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildInfoRow(Icons.email, 'Email', _userEmail),
+                      _buildInfoRow(Icons.phone, 'Phone', _userPhone),
+                      _buildInfoRow(
+                          Icons.business, 'Department', _userDepartment),
+                      if (_userRole == 'Student')
+                        _buildInfoRow(Icons.school, 'Year', _userYear),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Admin Actions (for HOD and Faculty)
+            if (_userRole == 'HOD' || _userRole == 'Faculty') ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Admin Actions',
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                      ),
+                      const SizedBox(height: 16),
+                      ListTile(
+                        leading: const Icon(Icons.person_add),
+                        title: const Text('Add Faculty'),
+                        subtitle: Text(
+                            'Add new faculty to $_userDepartment department'),
+                        onTap: _showAddFacultyDialog,
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.schedule),
+                        title: const Text('Manage Timetable'),
+                        subtitle: const Text('Edit class schedules'),
+                        onTap: () {
+                          Navigator.pushNamed(context, '/timetable');
+                        },
+                      ),
+                      if (_userRole == 'HOD')
+                        ListTile(
+                          leading: const Icon(Icons.admin_panel_settings),
+                          title: const Text('Department Management'),
+                          subtitle: const Text('Manage department settings'),
+                          onTap: () {
+                            // Navigate to department management
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Settings
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Settings',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 16),
+                    ListTile(
+                      leading: const Icon(Icons.logout, color: Colors.red),
+                      title: const Text(
+                        'Logout',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                      onTap: _logout,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -452,99 +252,215 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildInfoRow(IconData icon, String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.blue.shade600),
-          const SizedBox(width: 16),
+          Icon(icon, size: 20, color: Colors.grey.shade600),
+          const SizedBox(width: 12),
+          Text(
+            '$label: ',
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+            child: Text(
+              value.isNotEmpty ? value : 'Not provided',
+              style: TextStyle(color: Colors.grey.shade700),
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildActionRow(
-    IconData icon,
-    String title,
-    String subtitle,
-    VoidCallback onTap,
-  ) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          children: [
-            Icon(icon, size: 24, color: Colors.blue.shade600),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.arrow_forward_ios,
-              size: 16,
-              color: Colors.grey.shade400,
-            ),
-          ],
-        ),
-      ),
-    );
+class AddFacultyDialog extends StatefulWidget {
+  final String userDepartment;
+  final String userRole;
+
+  const AddFacultyDialog({
+    super.key,
+    required this.userDepartment,
+    required this.userRole,
+  });
+
+  @override
+  State<AddFacultyDialog> createState() => _AddFacultyDialogState();
+}
+
+class _AddFacultyDialogState extends State<AddFacultyDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  String _selectedRole = 'Faculty';
+  String _selectedDepartment = '';
+  bool _isLoading = false;
+
+  final List<String> _roles = ['Faculty'];
+  final List<String> _departments = [
+    'CSE',
+    'IT',
+    'ECE',
+    'EEE',
+    'MECH',
+    'CIVIL'
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedDepartment = widget.userDepartment;
+    if (widget.userRole == 'HOD') {
+      _roles.add('HOD');
+    }
   }
 
-  void _showAboutDialog() {
-    showAboutDialog(
-      context: context,
-      applicationName: 'SJCEM Navigator',
-      applicationVersion: '1.0.0',
-      applicationIcon: Icon(
-        Icons.school,
-        size: 50,
-        color: Colors.blue.shade600,
+  Future<void> _addFaculty() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        String userId =
+            'FC${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+
+        await supabase.from('users').insert({
+          'name': _nameController.text.trim(),
+          'user_id': userId,
+          'email': _emailController.text.trim(),
+          'role': _selectedRole,
+          'department': _selectedDepartment,
+          'phone': _phoneController.text.trim(),
+        });
+
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Faculty added successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e')),
+          );
+        }
+      } finally {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add Faculty'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Full Name',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter name';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter email';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _phoneController,
+                decoration: const InputDecoration(
+                  labelText: 'Phone',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter phone number';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedRole,
+                decoration: const InputDecoration(
+                  labelText: 'Role',
+                  border: OutlineInputBorder(),
+                ),
+                items: _roles.map((role) {
+                  return DropdownMenuItem(value: role, child: Text(role));
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedRole = value!;
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedDepartment,
+                decoration: const InputDecoration(
+                  labelText: 'Department',
+                  border: OutlineInputBorder(),
+                ),
+                items: _departments.map((dept) {
+                  return DropdownMenuItem(value: dept, child: Text(dept));
+                }).toList(),
+                onChanged: widget.userRole == 'HOD'
+                    ? (value) {
+                        setState(() {
+                          _selectedDepartment = value!;
+                        });
+                      }
+                    : null,
+              ),
+            ],
+          ),
+        ),
       ),
-      children: [
-        const Text('College Campus Navigation App'),
-        const SizedBox(height: 8),
-        const Text('Developed for SJCEM College'),
-        const Text('© 2024 All rights reserved'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _isLoading ? null : _addFaculty,
+          child: _isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Add Faculty'),
+        ),
       ],
     );
   }

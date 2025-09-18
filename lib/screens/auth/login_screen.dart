@@ -211,18 +211,18 @@ class _LoginScreenState extends State<LoginScreen> {
                     // Title
                     Text(
                       'SJCEM Navigator',
-                      style: Theme.of(context).textTheme.headlineLarge
-                          ?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade800,
-                          ),
+                      style:
+                          Theme.of(context).textTheme.headlineLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade800,
+                              ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Campus Navigation Made Easy',
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Colors.grey.shade600,
-                      ),
+                            color: Colors.grey.shade600,
+                          ),
                     ),
                     const SizedBox(height: 24),
 
@@ -327,14 +327,16 @@ class _LoginScreenState extends State<LoginScreen> {
                           children: [
                             Text(
                               _isSignUp ? 'Create Account' : 'Login as:',
-                              style: Theme.of(context).textTheme.titleMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
                                   ?.copyWith(fontWeight: FontWeight.w600),
                             ),
                             const SizedBox(height: 12),
 
                             // Role Selection
                             DropdownButtonFormField<String>(
-                              value: _selectedRole,
+                              initialValue: _selectedRole,
                               decoration: const InputDecoration(
                                 labelText: 'Role',
                                 border: OutlineInputBorder(),
@@ -394,7 +396,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                               // Department Selection
                               DropdownButtonFormField<String>(
-                                value: _selectedDepartment,
+                                initialValue: _selectedDepartment,
                                 decoration: const InputDecoration(
                                   labelText: 'Department',
                                   border: OutlineInputBorder(),
@@ -417,7 +419,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               // Year Selection (only for students)
                               if (_selectedRole == 'Student')
                                 DropdownButtonFormField<String>(
-                                  value: _selectedYear,
+                                  initialValue: _selectedYear,
                                   decoration: const InputDecoration(
                                     labelText: 'Year',
                                     border: OutlineInputBorder(),

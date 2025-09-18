@@ -52,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Timetable',
           ),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+ 
         ],
       ),
     );
