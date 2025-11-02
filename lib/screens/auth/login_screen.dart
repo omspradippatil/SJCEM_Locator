@@ -61,7 +61,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
       try {
         if (_selectedRole == 'Student') {
-          // For students, check DU number in students table
           final duNumber = _duNumberController.text.trim().toUpperCase();
 
           final studentData = await supabase
@@ -79,12 +78,18 @@ class _LoginScreenState extends State<LoginScreen> {
             return;
           }
 
-          // Student found, navigate to home
+          // Set user session
+          UserSession.setSession(
+            userId: studentData['du_number'],
+            role: 'Student',
+            name: studentData['name'] ?? '',
+            department: studentData['department'] ?? '',
+          );
+
           if (mounted) {
             Navigator.pushReplacementNamed(context, '/home');
           }
         } else if (_selectedRole == 'Faculty') {
-          // For Faculty, check username and password in faculty table
           final username = _usernameController.text.trim().toLowerCase();
           final password = _passwordController.text;
 
@@ -103,12 +108,18 @@ class _LoginScreenState extends State<LoginScreen> {
             return;
           }
 
-          // Faculty login successful, navigate to home
+          // Set user session
+          UserSession.setSession(
+            userId: facultyData['username'],
+            role: 'Faculty',
+            name: facultyData['name'] ?? '',
+            department: facultyData['department'] ?? '',
+          );
+
           if (mounted) {
             Navigator.pushReplacementNamed(context, '/home');
           }
         } else if (_selectedRole == 'HOD') {
-          // For HOD, check username and password in hods table
           final username = _usernameController.text.trim().toLowerCase();
           final password = _passwordController.text;
 
@@ -127,7 +138,14 @@ class _LoginScreenState extends State<LoginScreen> {
             return;
           }
 
-          // HOD login successful, navigate to home
+          // Set user session
+          UserSession.setSession(
+            userId: hodData['username'],
+            role: 'HOD',
+            name: hodData['name'] ?? '',
+            department: hodData['department'] ?? '',
+          );
+
           if (mounted) {
             Navigator.pushReplacementNamed(context, '/home');
           }

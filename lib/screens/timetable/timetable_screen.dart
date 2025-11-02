@@ -22,26 +22,22 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   Future<void> _loadUserRole() async {
     try {
-      final userId = supabase.auth.currentUser?.id;
-      if (userId == null) {
-        // Not logged in, redirect to login
+      // Check if user is logged in
+      if (!UserSession.isLoggedIn) {
+        // Default to Student view for guests
         if (mounted) {
-          Navigator.pushReplacementNamed(context, '/login');
+          setState(() {
+            _userRole = 'Student';
+            _loadTodaySchedule('CSE'); // Default department
+          });
         }
         return;
       }
 
-      // Fetch user role from the users table
-      final userData = await supabase
-          .from('users')
-          .select('role, department')
-          .eq('id', userId)
-          .single();
-
       if (mounted) {
         setState(() {
-          _userRole = userData['role'] ?? 'Student';
-          _loadTodaySchedule(userData['department']);
+          _userRole = UserSession.currentUserRole ?? 'Student';
+          _loadTodaySchedule(UserSession.currentDepartment ?? 'CSE');
         });
       }
     } catch (e) {
@@ -61,7 +57,6 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   Future<void> _loadTodaySchedule(String department) async {
     try {
-      // Get current day of week (1-7, 1 is Monday)
       final now = DateTime.now();
       final dayOfWeek = now.weekday;
       final dayNames = [
@@ -76,29 +71,28 @@ class _TimetableScreenState extends State<TimetableScreen> {
       ];
       final today = dayNames[dayOfWeek];
 
-      // Fetch timetable from Supabase
       final response = await supabase
           .from('timetable')
           .select('*')
           .eq('department', department)
-          .order('time');
+          .eq('day', today)
+          .order('time_slot');
 
       final List<ClassSchedule> schedule = [];
 
       for (final cls in response) {
-        // Check if class is completed (based on time)
-        final timeStr = cls['time'] as String;
+        final timeStr = cls['time_slot'] as String? ?? '';
         final endTime = _getEndTime(timeStr);
         final isCompleted = _isTimeCompleted(endTime);
 
         schedule.add(
           ClassSchedule(
-            subject: cls['subject'] ?? '',
-            time: cls['time'] ?? '',
-            faculty: cls['faculty'] ?? '',
-            room: cls['room'] ?? '',
-            floor: cls['floor'] ?? '',
-            type: cls['type'] ?? 'Lecture',
+            subject: cls['subject'] as String? ?? 'Unknown Subject',
+            time: cls['time_slot'] as String? ?? 'Time TBD',
+            faculty: cls['faculty_name'] as String? ?? 'TBD',
+            room: cls['room_number'] as String? ?? 'TBD',
+            floor: cls['floor'] as String? ?? 'TBD',
+            type: cls['type'] as String? ?? 'Lecture',
             isCompleted: isCompleted,
           ),
         );
