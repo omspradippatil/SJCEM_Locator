@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart'; // To access supabase client
 
 class FacultyScreen extends StatefulWidget {
@@ -29,39 +28,42 @@ class _FacultyScreenState extends State<FacultyScreen> {
 
   Future<void> _loadFacultyData() async {
     try {
-      // Fetch faculty data from Supabase
       final response = await supabase
-          .from('users')
-          .select('*, faculty_availability(*)')
-          .filter('role', 'in', [
-            'Faculty',
-            'HOD',
-          ]) // Using filter instead of in
+          .from('faculty')
+          .select(
+            '*, faculty_availability!faculty_availability_faculty_username_fkey(*)',
+          )
+          .eq('status', 'Active')
           .order('name');
 
       final List<Faculty> facultyData = [];
 
       for (final faculty in response) {
-        final availability =
-            faculty['faculty_availability'] != null &&
-                faculty['faculty_availability'].isNotEmpty
-            ? faculty['faculty_availability'][0]
-            : null;
+        // Safely get availability data
+        Map<String, dynamic>? availability;
+        if (faculty['faculty_availability'] != null) {
+          final availList = faculty['faculty_availability'] as List;
+          if (availList.isNotEmpty) {
+            availability = availList[0] as Map<String, dynamic>;
+          }
+        }
 
         facultyData.add(
           Faculty(
-            name: faculty['name'] ?? '',
-            subject: faculty['department'] ?? '',
-            department: faculty['department'] ?? '',
-            currentLocation: availability != null
-                ? availability['current_location'] ?? 'Unknown'
-                : 'Unknown',
-            isAvailable: availability != null
-                ? availability['is_available'] ?? false
-                : false,
-            profileImage: faculty['profile_image_url'] ?? '',
-            phoneNumber: faculty['phone'] ?? '',
-            email: faculty['email'] ?? '',
+            name: faculty['name'] as String? ?? 'Unknown',
+            subject:
+                faculty['specialization'] as String? ??
+                faculty['department'] as String? ??
+                'N/A',
+            department: faculty['department'] as String? ?? 'N/A',
+            currentLocation:
+                availability?['current_location'] as String? ??
+                faculty['office_location'] as String? ??
+                'Unknown',
+            isAvailable: availability?['is_available'] as bool? ?? true,
+            profileImage: faculty['profile_image_url'] as String? ?? '',
+            phoneNumber: faculty['phone'] as String? ?? 'N/A',
+            email: faculty['email'] as String? ?? 'N/A',
           ),
         );
       }

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart'; // To access supabase client
 
 class LoginScreen extends StatefulWidget {
@@ -11,8 +10,9 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _duNumberController = TextEditingController(); // For students
+  final _usernameController = TextEditingController(); // For faculty
+  final _passwordController = TextEditingController(); // For faculty only
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _studentIdController = TextEditingController();
@@ -25,7 +25,12 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isSignUp = false;
   String? _errorMessage;
 
-  final List<String> _roles = ['Student', 'Faculty', 'HOD'];
+  final List<String> _roles = [
+    'Student',
+    'Faculty',
+    'HOD',
+  ]; // All roles for login
+  final List<String> _signUpRoles = ['Student']; // Only students can sign up
   final List<String> _departments = [
     'CSE',
     'IT',
@@ -38,7 +43,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _duNumberController.dispose();
+    _usernameController.dispose();
     _passwordController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
@@ -54,54 +60,96 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
       try {
-        // Sign in with Supabase
-        final response = await supabase.auth.signInWithPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
-        );
+        if (_selectedRole == 'Student') {
+          final duNumber = _duNumberController.text.trim().toUpperCase();
 
-        if (response.session != null) {
-          // Check if user has the role they selected (optional)
-          final userId = response.user!.id;
-          final userData = await supabase
-              .from('users')
-              .select('role')
-              .eq('id', userId)
+          final studentData = await supabase
+              .from('students')
+              .select('*')
+              .eq('du_number', duNumber)
               .maybeSingle();
 
-          if (userData == null) {
-            // User exists in auth but not in users table
-            if (mounted) {
-              setState(() {
-                _errorMessage =
-                    'User profile not found. Please contact administrator.';
-                _isLoading = false;
-              });
-            }
+          if (studentData == null) {
+            setState(() {
+              _errorMessage =
+                  'DU number not found. Please contact administrator.';
+              _isLoading = false;
+            });
             return;
           }
 
-          if (userData['role'] == _selectedRole) {
-            // Navigate to home screen
-            if (mounted) {
-              Navigator.pushReplacementNamed(context, '/home');
-            }
-          } else {
-            // Role mismatch, sign out
-            await supabase.auth.signOut();
-            if (mounted) {
-              setState(() {
-                _errorMessage = 'Access denied. Incorrect role selected.';
-                _isLoading = false;
-              });
-            }
+          // Set user session
+          UserSession.setSession(
+            userId: studentData['du_number'],
+            role: 'Student',
+            name: studentData['name'] ?? '',
+            department: studentData['department'] ?? '',
+          );
+
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/home');
+          }
+        } else if (_selectedRole == 'Faculty') {
+          final username = _usernameController.text.trim().toLowerCase();
+          final password = _passwordController.text;
+
+          final facultyData = await supabase
+              .from('faculty')
+              .select('*')
+              .eq('username', username)
+              .eq('password', password)
+              .maybeSingle();
+
+          if (facultyData == null) {
+            setState(() {
+              _errorMessage = 'Invalid username or password for Faculty.';
+              _isLoading = false;
+            });
+            return;
+          }
+
+          // Set user session
+          UserSession.setSession(
+            userId: facultyData['username'],
+            role: 'Faculty',
+            name: facultyData['name'] ?? '',
+            department: facultyData['department'] ?? '',
+          );
+
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/home');
+          }
+        } else if (_selectedRole == 'HOD') {
+          final username = _usernameController.text.trim().toLowerCase();
+          final password = _passwordController.text;
+
+          final hodData = await supabase
+              .from('hods')
+              .select('*')
+              .eq('username', username)
+              .eq('password', password)
+              .maybeSingle();
+
+          if (hodData == null) {
+            setState(() {
+              _errorMessage = 'Invalid username or password for HOD.';
+              _isLoading = false;
+            });
+            return;
+          }
+
+          // Set user session
+          UserSession.setSession(
+            userId: hodData['username'],
+            role: 'HOD',
+            name: hodData['name'] ?? '',
+            department: hodData['department'] ?? '',
+          );
+
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/home');
           }
         }
-      } on AuthException catch (e) {
-        setState(() {
-          _errorMessage = e.message;
-          _isLoading = false;
-        });
       } catch (e) {
         setState(() {
           _errorMessage = 'An unexpected error occurred: ${e.toString()}';
@@ -119,50 +167,36 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
       try {
-        // Step 1: Create auth user
-        final response = await supabase.auth.signUp(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
-        );
+        // Sign-up is only for students
+        // Faculty accounts must be manually created by admin
 
-        if (response.user != null) {
-          final userId = response.user!.id;
+        Map<String, dynamic> studentData = {
+          'name': _nameController.text.trim(),
+          'du_number': _studentIdController.text.trim(),
+          'department': _selectedDepartment,
+          'year': _selectedYear,
+          'phone': _phoneController.text.trim(),
+        };
 
-          // Step 2: Add user details to the users table
-          await supabase.from('users').insert({
-            'id': userId,
-            'name': _nameController.text.trim(),
-            'user_id': _studentIdController.text.trim(),
-            'email': _emailController.text.trim(),
-            'department': _selectedDepartment,
-            'year': _selectedRole == 'Student' ? _selectedYear : null,
-            'role': _selectedRole,
-            'phone': _phoneController.text.trim(),
-          });
+        await supabase.from('students').insert(studentData);
 
-          // Success message
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Account created successfully! You can now sign in.',
-                ),
-                backgroundColor: Colors.green,
+        // Success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Student account created successfully! You can now sign in with your DU number.',
               ),
-            );
+              backgroundColor: Colors.green,
+            ),
+          );
 
-            // Switch back to sign in mode
-            setState(() {
-              _isSignUp = false;
-              _isLoading = false;
-            });
-          }
+          // Switch back to sign in mode
+          setState(() {
+            _isSignUp = false;
+            _isLoading = false;
+          });
         }
-      } on AuthException catch (e) {
-        setState(() {
-          _errorMessage = e.message;
-          _isLoading = false;
-        });
       } catch (e) {
         setState(() {
           _errorMessage = 'An unexpected error occurred: ${e.toString()}';
@@ -235,6 +269,10 @@ class _LoginScreenState extends State<LoginScreen> {
                             onPressed: () {
                               setState(() {
                                 _isSignUp = false;
+                                // Reset to Student when switching to login (all roles available)
+                                if (!_roles.contains(_selectedRole)) {
+                                  _selectedRole = 'Student';
+                                }
                               });
                             },
                             style: ElevatedButton.styleFrom(
@@ -263,6 +301,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             onPressed: () {
                               setState(() {
                                 _isSignUp = true;
+                                // Force Student role for sign-up (only students can sign up)
+                                _selectedRole = 'Student';
                               });
                             },
                             style: ElevatedButton.styleFrom(
@@ -334,13 +374,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
                             // Role Selection
                             DropdownButtonFormField<String>(
-                              value: _selectedRole,
+                              initialValue: _selectedRole,
                               decoration: const InputDecoration(
                                 labelText: 'Role',
                                 border: OutlineInputBorder(),
                                 prefixIcon: Icon(Icons.person_outline),
                               ),
-                              items: _roles.map((role) {
+                              items: (_isSignUp ? _signUpRoles : _roles).map((
+                                role,
+                              ) {
                                 return DropdownMenuItem(
                                   value: role,
                                   child: Text(role),
@@ -394,7 +436,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                               // Department Selection
                               DropdownButtonFormField<String>(
-                                value: _selectedDepartment,
+                                initialValue: _selectedDepartment,
                                 decoration: const InputDecoration(
                                   labelText: 'Department',
                                   border: OutlineInputBorder(),
@@ -417,7 +459,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               // Year Selection (only for students)
                               if (_selectedRole == 'Student')
                                 DropdownButtonFormField<String>(
-                                  value: _selectedYear,
+                                  initialValue: _selectedYear,
                                   decoration: const InputDecoration(
                                     labelText: 'Year',
                                     border: OutlineInputBorder(),
@@ -457,60 +499,81 @@ class _LoginScreenState extends State<LoginScreen> {
                               const SizedBox(height: 16),
                             ],
 
-                            // Email Field
-                            TextFormField(
-                              controller: _emailController,
-                              decoration: const InputDecoration(
-                                labelText: 'Email',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.email_outlined),
-                              ),
-                              keyboardType: TextInputType.emailAddress,
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your email';
-                                }
-                                if (!RegExp(
-                                  r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                                ).hasMatch(value)) {
-                                  return 'Please enter a valid email';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Password Field
-                            TextFormField(
-                              controller: _passwordController,
-                              obscureText: !_isPasswordVisible,
-                              decoration: InputDecoration(
-                                labelText: 'Password',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _isPasswordVisible
-                                        ? Icons.visibility_off
-                                        : Icons.visibility,
+                            // Login Fields based on role
+                            if (!_isSignUp) ...[
+                              if (_selectedRole == 'Student') ...[
+                                // DU Number field for students
+                                TextFormField(
+                                  controller: _duNumberController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'DU Number (e.g., DU1234029)',
+                                    border: OutlineInputBorder(),
+                                    prefixIcon: Icon(Icons.badge_outlined),
                                   ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _isPasswordVisible = !_isPasswordVisible;
-                                    });
+                                  textCapitalization:
+                                      TextCapitalization.characters,
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your DU number';
+                                    }
+                                    if (!RegExp(
+                                      r'^DU\d{7}$',
+                                    ).hasMatch(value.toUpperCase())) {
+                                      return 'Please enter a valid DU number (e.g., DU1234029)';
+                                    }
+                                    return null;
                                   },
                                 ),
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your password';
-                                }
-                                if (_isSignUp && value.length < 6) {
-                                  return 'Password must be at least 6 characters';
-                                }
-                                return null;
-                              },
-                            ),
+                              ] else ...[
+                                // Username field for faculty/HOD
+                                TextFormField(
+                                  controller: _usernameController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Username (e.g., hemantb)',
+                                    border: OutlineInputBorder(),
+                                    prefixIcon: Icon(Icons.person_outline),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your username';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 16),
+
+                                // Password field for faculty/HOD
+                                TextFormField(
+                                  controller: _passwordController,
+                                  obscureText: !_isPasswordVisible,
+                                  decoration: InputDecoration(
+                                    labelText: 'Password',
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: const Icon(Icons.lock_outline),
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        _isPasswordVisible
+                                            ? Icons.visibility_off
+                                            : Icons.visibility,
+                                      ),
+                                      onPressed: () {
+                                        setState(() {
+                                          _isPasswordVisible =
+                                              !_isPasswordVisible;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your password';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ],
+                            ],
+
                             const SizedBox(height: 24),
 
                             // Sign In/Up Button
@@ -553,18 +616,28 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Forgot Password
-                    if (!_isSignUp)
+                    // Contact Admin for Faculty (instead of forgot password)
+                    if (!_isSignUp && _selectedRole != 'Student')
                       TextButton(
                         onPressed: () {
-                          // Handle forgot password
                           showDialog(
                             context: context,
-                            builder: (context) => _buildForgotPasswordDialog(),
+                            builder: (context) => AlertDialog(
+                              title: const Text('Need Help?'),
+                              content: const Text(
+                                'For password reset or any issues, please contact the administrator.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text('OK'),
+                                ),
+                              ],
+                            ),
                           );
                         },
                         child: Text(
-                          'Forgot Password?',
+                          'Need Help?',
                           style: TextStyle(color: Colors.blue.shade600),
                         ),
                       ),
@@ -575,105 +648,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildForgotPasswordDialog() {
-    final emailController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    bool isLoading = false;
-
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return AlertDialog(
-          title: const Text('Reset Password'),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Enter your email address and we will send you a password reset link.',
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: emailController,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
-                    }
-                    if (!RegExp(
-                      r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                    ).hasMatch(value)) {
-                      return 'Please enter a valid email';
-                    }
-                    return null;
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: isLoading
-                  ? null
-                  : () async {
-                      if (formKey.currentState!.validate()) {
-                        setState(() {
-                          isLoading = true;
-                        });
-
-                        try {
-                          await supabase.auth.resetPasswordForEmail(
-                            emailController.text.trim(),
-                          );
-
-                          if (context.mounted) {
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Password reset link sent to your email',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Error: ${e.toString()}'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                            setState(() {
-                              isLoading = false;
-                            });
-                          }
-                        }
-                      }
-                    },
-              child: isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Send Link'),
-            ),
-          ],
-        );
-      },
     );
   }
 }

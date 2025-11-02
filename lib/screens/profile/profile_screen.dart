@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart'; // To access supabase client
 
 class ProfileScreen extends StatefulWidget {
@@ -21,33 +20,66 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadUserProfile() async {
     try {
-      final userId = supabase.auth.currentUser?.id;
-      if (userId == null) {
-        // Not logged in, redirect to login
+      if (!UserSession.isLoggedIn) {
+        // Show login prompt
         if (mounted) {
-          Navigator.pushReplacementNamed(context, '/login');
+          _showLoginRequired();
         }
         return;
       }
 
-      // Fetch user data from the users table
-      final userData = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', userId)
-          .single();
+      final role = UserSession.currentUserRole;
+      final userId = UserSession.currentUserId;
+
+      if (userId == null || role == null) {
+        if (mounted) {
+          _showLoginRequired();
+        }
+        return;
+      }
+
+      Map<String, dynamic>? userData;
+
+      if (role == 'Student') {
+        userData = await supabase
+            .from('students')
+            .select('*')
+            .eq('du_number', userId)
+            .maybeSingle();
+      } else if (role == 'Faculty') {
+        userData = await supabase
+            .from('faculty')
+            .select('*')
+            .eq('username', userId)
+            .maybeSingle();
+      } else if (role == 'HOD') {
+        userData = await supabase
+            .from('hods')
+            .select('*')
+            .eq('username', userId)
+            .maybeSingle();
+      }
+
+      if (userData == null) {
+        if (mounted) {
+          _showLoginRequired();
+        }
+        return;
+      }
 
       if (mounted) {
         setState(() {
           _userProfile = UserProfile(
-            name: userData['name'] ?? '',
-            id: userData['user_id'] ?? '',
-            email: userData['email'] ?? '',
-            department: userData['department'] ?? '',
-            year: userData['year'] ?? '',
-            role: userData['role'] ?? '',
-            phone: userData['phone'] ?? '',
-            profileImage: userData['profile_image_url'] ?? '',
+            name: (userData?['name'] as String?) ?? 'Unknown',
+            id: userId,
+            email: (userData?['email'] as String?) ?? 'N/A',
+            department: (userData?['department'] as String?) ?? 'N/A',
+            year: role == 'Student'
+                ? ((userData?['year'] as String?) ?? 'N/A')
+                : '',
+            role: role,
+            phone: (userData?['phone'] as String?) ?? 'N/A',
+            profileImage: (userData?['profile_image_url'] as String?) ?? '',
           );
           _isLoading = false;
         });
@@ -67,6 +99,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  void _showLoginRequired() {
+    setState(() {
+      _isLoading = false;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Login Required'),
+          content: const Text('Please login to view your profile.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pushReplacementNamed(context, '/home');
+              },
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pushReplacementNamed(context, '/login');
+              },
+              child: const Text('Login'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
   Future<void> _logout() async {
     showDialog(
       context: context,
@@ -79,23 +143,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () async {
+            onPressed: () {
               Navigator.pop(context);
-              try {
-                await supabase.auth.signOut();
-                if (mounted) {
-                  Navigator.pushReplacementNamed(context, '/login');
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error logging out: ${e.toString()}'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
+              UserSession.clearSession();
+              Navigator.pushReplacementNamed(context, '/home');
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
@@ -117,16 +168,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         userProfile: _userProfile!,
         onUpdate: (updatedProfile) async {
           try {
-            // Update profile in Supabase
-            final userId = supabase.auth.currentUser?.id;
-            if (userId == null) {
-              // Handle case where user is not logged in
+            final role = UserSession.currentUserRole;
+            final userId = UserSession.currentUserId;
+            
+            if (userId == null || role == null) {
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text(
-                      'You must be logged in to update your profile',
-                    ),
+                    content: Text('You must be logged in to update your profile'),
                     backgroundColor: Colors.red,
                   ),
                 );
@@ -134,23 +183,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
               return;
             }
 
-            await supabase
-                .from('users')
-                .update({
-                  'name': updatedProfile.name,
-                  'email': updatedProfile.email,
-                  'phone': updatedProfile.phone,
-                })
-                .eq(
-                  'id',
-                  userId,
-                ); // This is now safe as we checked userId != null
-
-            setState(() {
-              _userProfile = updatedProfile;
-            });
+            // Update in the appropriate table based on role
+            if (role == 'Student') {
+              await supabase
+                  .from('students')
+                  .update({
+                    'name': updatedProfile.name,
+                    'email': updatedProfile.email,
+                    'phone': updatedProfile.phone,
+                  })
+                  .eq('du_number', userId);
+            } else if (role == 'Faculty') {
+              await supabase
+                  .from('faculty')
+                  .update({
+                    'name': updatedProfile.name,
+                    'email': updatedProfile.email,
+                    'phone': updatedProfile.phone,
+                  })
+                  .eq('username', userId);
+            } else if (role == 'HOD') {
+              await supabase
+                  .from('hods')
+                  .update({
+                    'name': updatedProfile.name,
+                    'email': updatedProfile.email,
+                    'phone': updatedProfile.phone,
+                  })
+                  .eq('username', userId);
+            }
 
             if (mounted) {
+              setState(() {
+                _userProfile = updatedProfile;
+              });
+
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Profile updated successfully'),
@@ -277,7 +344,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               shape: BoxShape.circle,
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.1),
+                                  color: Colors.black.withValues(alpha: 0.1),
                                   blurRadius: 4,
                                   spreadRadius: 1,
                                 ),
@@ -320,7 +387,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -421,6 +488,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                 ],
+              
               ),
             ),
           ],
