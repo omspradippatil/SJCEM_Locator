@@ -1,4 +1,4 @@
-﻿# SJCEM Navigator
+# SJCEM Navigator
 
 A campus navigation and management app for St. John College of Engineering and Management.
 
@@ -59,7 +59,17 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## ☕ Support
+##  Support
 
 If you find this project helpful, consider [supporting me](https://ompradippatil.netlify.app/donate).
 
+---
+
+##  Contact the Developer
+
+**Developed by OM Patil**
+
+- **Portfolio**: [ompradippatil.netlify.app](https://ompradippatil.netlify.app/)
+- **GitHub**: [@omspradippatil](https://github.com/omspradippatil)
+- **LinkedIn**: [OM Pradip Patil](https://in.linkedin.com/in/om-pradip-patil)
+- **Email**: [omspradippatil@gmail.com](mailto:omspradippatil@gmail.com)
