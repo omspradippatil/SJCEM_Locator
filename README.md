@@ -61,7 +61,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ##  Support
 
-If you find this project helpful, consider [supporting me](https://ompradippatil.netlify.app/donate).
+If you find this project helpful, consider [supporting me](https://om-patil.com/donate).
 
 ---
 
